@@ -43,6 +43,12 @@ for name in platform_dirs:
     natives = list((LIB / name).glob('*processing_nozzle_jni*'))
     if not natives:
         raise SystemExit(f'missing native helper in {name}')
+    nozzle_libraries = [
+        *(LIB / name).glob('libnozzle.*'),
+        *(LIB / name).glob('nozzle.dll'),
+    ]
+    if not nozzle_libraries:
+        raise SystemExit(f'missing bundled nozzle shared library in {name}')
 
 zips = sorted((ROOT / 'build').glob('processing-nozzle-latest-*.zip'))
 if len(zips) != 1:

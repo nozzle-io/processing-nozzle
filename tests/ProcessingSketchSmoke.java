@@ -57,25 +57,39 @@ public final class ProcessingSketchSmoke extends PApplet {
         runOracleChecks(320, 240);
         runOracleChecks(641, 479);
 
-        NozzleSender sender = new NozzleSender(this, "processing-runtime-smoke");
-        byte[] rgba = sender.deterministicRgbaFrame(320, 240);
-        PixelPattern.assertRgbaOracle(rgba, 320, 240);
-        int[] argb = PixelPattern.argb(320, 240);
-        NozzlePathStatus publishStatus = sender.publishPixels(argb, 320, 240);
-        sender.close();
+        runFrameInteropChecks(320, 240);
+        runFrameInteropChecks(641, 479);
+    }
 
-        NozzleReceiver receiver = new NozzleReceiver(this, "processing-runtime-smoke");
-        NozzlePathStatus receiveStatus = receiver.update();
-        receiver.close();
-
-        System.out.println("PROCESSING_NOZZLE_PATH_STATUS sender=" + publishStatus
-            + " receiver=" + receiveStatus
-            + " pjogl_texture=MISSING_HOST_SMOKE copy_cost=UNPROVEN");
-        if (publishStatus != NozzlePathStatus.MISSING_HOST_SMOKE) {
-            throw new AssertionError("unexpected sender status: " + publishStatus);
-        }
-        if (receiveStatus != NozzlePathStatus.MISSING_HOST_SMOKE) {
-            throw new AssertionError("unexpected receiver status: " + receiveStatus);
+    private static void runFrameInteropChecks(int width, int height) {
+        String sourceName = "processing-runtime-smoke-" + width + "x" + height;
+        NozzleSender sender = new NozzleSender(null, sourceName);
+        NozzleReceiver receiver = new NozzleReceiver(null, sourceName);
+        try {
+            byte[] rgba = sender.deterministicRgbaFrame(width, height);
+            PixelPattern.assertRgbaOracle(rgba, width, height);
+            int[] argb = PixelPattern.argb(width, height);
+            NozzlePathStatus publishStatus = sender.publishPixels(argb, width, height);
+            NozzlePathStatus receiveStatus = receiver.update(width, height, 1500L);
+            if (publishStatus == NozzlePathStatus.PASS && receiveStatus == NozzlePathStatus.PASS) {
+                PixelPattern.assertRgbaOracle(receiver.lastRgbaFrame(), width, height);
+                System.out.println("PROCESSING_NOZZLE_FRAME_INTEROP size=" + width + "x" + height
+                    + " sender=PASS receiver=PASS no_y_flip=PASS no_r_b_swap=PASS alpha=PASS byte_size_mismatch=PASS"
+                    + " pjogl_texture=MISSING_HOST_SMOKE copy_cost=cpu-copy");
+                return;
+            }
+            System.out.println("PROCESSING_NOZZLE_FRAME_INTEROP size=" + width + "x" + height
+                + " sender=" + publishStatus
+                + " sender_error=" + sender.lastError()
+                + " receiver=" + receiveStatus
+                + " receiver_error=" + receiver.lastError()
+                + " pjogl_texture=MISSING_HOST_SMOKE copy_cost=UNPROVEN");
+            if (publishStatus == NozzlePathStatus.FAIL || receiveStatus == NozzlePathStatus.FAIL) {
+                throw new AssertionError("Processing nozzle frame interop failed for " + width + "x" + height);
+            }
+        } finally {
+            receiver.close();
+            sender.close();
         }
     }
 

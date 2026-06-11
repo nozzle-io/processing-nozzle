@@ -24,6 +24,7 @@ public final class NozzleDiagnostics {
         values.put("java-api", NozzlePathStatus.PASS);
         values.put("jni-native-load", nativeLoaded ? NozzlePathStatus.PASS : NozzlePathStatus.FAIL);
         values.put("cpu-pattern-oracle", NozzlePathStatus.PASS);
+        values.put("nozzle-cpu-frame-api", nativeLoaded ? NozzlePathStatus.PASS : NozzlePathStatus.FAIL);
         values.put("nozzle-runtime-sender-receiver", NozzlePathStatus.MISSING_HOST_SMOKE);
         values.put("pjogl-opengl-texture", NozzlePathStatus.MISSING_HOST_SMOKE);
         this.paths = Collections.unmodifiableMap(values);
