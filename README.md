@@ -27,7 +27,8 @@ Not claimed:
 - No Processing PJOGL texture send/receive support.
 - No npm/Maven/Processing contribution publication.
 - No proof that `nozzle.java` is sufficient Processing/PJOGL evidence.
-- No real runtime sender/frame interop proof yet; CI only proves build, native load, package shape, and deterministic CPU oracle logic.
+- Linux CI runs a real Processing `PApplet` sketch smoke through `org.processing:core:4.5.2`, using the packaged `processing-nozzle.jar` and native helper.
+- No real nozzle sender/frame interop proof yet; runtime smoke classifies sender/receiver and PJOGL texture paths as `MISSING_HOST_SMOKE` with copy cost `UNPROVEN`.
 
 ## Build
 
@@ -52,11 +53,12 @@ The zip unpacks directly to `processing-nozzle/` with no extra wrapper directory
 | --- | --- | --- |
 | Java API compile | PASS in CI | `javac --release 17` |
 | JNI native load | PASS in CI | `NozzleSelfTest` loads `processing_nozzle_jni` from Processing 4 platform folder |
-| CPU pattern oracle 320x240 | PASS in CI | deterministic RGBA bytes: no y-flip, no R/B swap, alpha checked |
-| CPU pattern oracle 641x479 | PASS in CI | odd-size deterministic RGBA bytes: no y-flip, no R/B swap, alpha checked |
+| Real Processing sketch runtime | PASS on Linux CI | `xvfb-run -a python3 scripts/run_processing_sketch_smoke.py` starts a `PApplet`, runs `setup()`/`draw()`, loads packaged jar/native helper, and exits deterministically |
+| CPU pattern oracle 320x240 | PASS in Java self-test and Processing sketch smoke | deterministic RGBA bytes; runtime smoke verifies no y-flip, no R/B swap, alpha, and byte-size mismatch detection |
+| CPU pattern oracle 641x479 | PASS in Java self-test and Processing sketch smoke | odd-size deterministic RGBA bytes; runtime smoke verifies no y-flip, no R/B swap, alpha, and byte-size mismatch detection |
 | Processing package layout | PASS in CI | `scripts/check_package.py` validates `library.properties`, jar, native folder, examples, reference, zip root |
-| Actual nozzle sender/receiver runtime | MISSING_HOST_SMOKE | needs Processing sketch + nozzle receiver/sender oracle on a host runtime |
-| PJOGL/OpenGL texture path | MISSING_HOST_SMOKE | no zero-copy/GPU claim without render-thread smoke evidence |
+| Actual nozzle sender/receiver runtime | MISSING_HOST_SMOKE | Processing sketch constructs sender/receiver and reports explicit missing status; no frame interop attempted/proven |
+| PJOGL/OpenGL texture path | MISSING_HOST_SMOKE | no zero-copy/GPU claim without render-thread texture evidence; copy cost remains `UNPROVEN` |
 
 ## License
 

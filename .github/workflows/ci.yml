@@ -37,3 +37,11 @@ jobs:
         run: |
           platform_dir=$(python3 scripts/platform_folder.py)
           java -Djava.library.path="$platform_dir" -cp build/classes processing.nozzle.NozzleSelfTest
+      - name: Install Linux virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+      - name: Processing sketch runtime smoke
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python3 scripts/run_processing_sketch_smoke.py
