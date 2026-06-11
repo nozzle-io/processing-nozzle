@@ -61,6 +61,13 @@ final class ProcessingNozzleNative {
         return nativeVersion();
     }
 
+    static String backendDiagnostics() {
+        if (!loaded) {
+            return "not-loaded: " + loadError;
+        }
+        return nativeBackendDiagnostics();
+    }
+
     static int selfTest() {
         if (!loaded) {
             return -1;
@@ -116,6 +123,7 @@ final class ProcessingNozzleNative {
     }
 
     private static native String nativeVersion();
+    private static native String nativeBackendDiagnostics();
     private static native int nativeSelfTest();
     private static native String nativeLastError();
     private static native long nativeCreateSender(String name);

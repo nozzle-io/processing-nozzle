@@ -47,6 +47,10 @@ public final class ProcessingSketchSmoke extends PApplet {
     private void runSmokeChecks() {
         NozzleDiagnostics diagnostics = Nozzle.diagnostics(this);
         System.out.println("PROCESSING_NOZZLE_DIAGNOSTICS " + diagnostics.summary());
+        System.out.println("PROCESSING_NOZZLE_BACKEND_PROBE os=" + System.getProperty("os.name")
+            + " dri_exists=" + new java.io.File("/dev/dri").exists()
+            + " renderD128_exists=" + new java.io.File("/dev/dri/renderD128").exists()
+            + " native=" + ProcessingNozzleNative.backendDiagnostics());
         if (!diagnostics.nativeLoaded()) {
             throw new AssertionError("native helper did not load: " + diagnostics.summary());
         }

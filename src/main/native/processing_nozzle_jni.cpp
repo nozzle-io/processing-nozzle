@@ -157,6 +157,21 @@ Java_processing_nozzle_ProcessingNozzleNative_nativeVersion(JNIEnv *env, jclass)
     return env->NewStringUTF(text.c_str());
 }
 
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_processing_nozzle_ProcessingNozzleNative_nativeBackendDiagnostics(JNIEnv *env, jclass) {
+    NozzleBackendCapabilities caps{};
+    caps.struct_size = sizeof(NozzleBackendCapabilities);
+    NozzleErrorCode caps_code = nozzle_get_backend_capabilities(NOZZLE_BACKEND_DMA_BUF, &caps);
+    std::string text = "dma_buf_available=" + std::to_string(nozzle_backend_is_available(NOZZLE_BACKEND_DMA_BUF))
+        + "; caps_code=" + std::to_string(static_cast<int>(caps_code))
+        + "; capability_flags=" + std::to_string(caps.capability_flags)
+        + "; sharing_mechanisms=" + std::to_string(caps.sharing_mechanisms)
+        + "; cpu_read_bits=" + std::to_string(caps.cpu_read_format_bits)
+        + "; cpu_write_bits=" + std::to_string(caps.cpu_write_format_bits);
+    return env->NewStringUTF(text.c_str());
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_processing_nozzle_ProcessingNozzleNative_nativeSelfTest(JNIEnv *, jclass) {
     if (NOZZLE_OK != 0) {
