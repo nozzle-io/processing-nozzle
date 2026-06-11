@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, stable]
+  pull_request:
+    branches: [main, stable]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Configure MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Build Processing package
+        run: python3 scripts/build_package.py
+      - name: Check package shape
+        run: python3 scripts/check_package.py
+      - name: Native load and CPU oracle smoke
+        shell: bash
+        run: |
+          platform_dir=$(python3 scripts/platform_folder.py)
+          java -Djava.library.path="$platform_dir" -cp build/classes processing.nozzle.NozzleSelfTest
