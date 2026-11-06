@@ -8,7 +8,7 @@ This is an implementation spike, not a GPU texture support claim.
 
 - Processing release target: Processing 4.5.2 (`processing-1313-4.5.2`), tag commit `c5fec0554ab6292e5984ac3e202c6577c87a42fa`.
 - Java target: JDK 17.
-- nozzle submodule: `deps/nozzle` pinned to `a8efca3c847c39b76057a8e77f94b34146cc9125`.
+- nozzle submodule: `deps/nozzle`; `git ls-tree HEAD deps/nozzle` identifies the recorded core version for a build.
 
 ## Scope
 
@@ -19,6 +19,7 @@ Implemented:
 - JNI native helper (`processing_nozzle_jni`) compiled per host platform and linked to the bundled `libnozzle`/`nozzle.dll`.
 - Deterministic CPU pattern/oracle helpers for `320x240` and `641x479` that check orientation, R/B ordering, and alpha bytes.
 - Examples: `NozzleDiagnostics`, `NozzleSenderCpu`, `NozzleReceiverCpu`.
+- CPU send accepts Java numeric ARGB pixels and writes the actual RGBA8/BGRA8 mapped order. CPU receive returns tightly packed RGBA bytes for RGBA8/BGRA8 (including sRGB byte layouts); other mapped component layouts return `UNSUPPORTED`, not mislabeled RGBA. Channel normalization preserves byte values, not an sRGB-to-linear conversion.
 - Package-shape validation for Processing library metadata, jar, native folder, bundled nozzle shared library, examples, reference, and zip top-level layout.
 - Linux Processing runtime smoke attempts deterministic Processing ARGB -> nozzle CPU-copy sender -> independent nozzle receiver interop for `320x240` and `641x479`, and reports explicit `PASS` or `MISSING_HOST_SMOKE` markers instead of claiming GPU/PJOGL support.
 
@@ -49,6 +50,17 @@ build/processing-nozzle-latest-<short_sha>.zip
 The zip unpacks directly to `processing-nozzle/` with no extra wrapper directory.
 
 ## Evidence table
+
+The macOS-only `python3 scripts/run_native_pixel_peer.py` runs after the package
+build. It invokes public Java send/receive through production JNI against an
+independent native C API peer at `65x3` and `641x479`, with asymmetric channels,
+alpha and padded mapped rows. It also verifies explicit rejection of native R8
+input. Missing Metal or unexpected storage is a failure in this lane, not a
+skip. The test peer and test classes are outside the distributable package.
+
+This is same-process Java/JNI plus native Metal evidence, not a Processing GUI
+sketch, cross-process test, Windows D3D11 pixel test or Linux DMA-BUF pixel proof.
+The Linux host-smoke boundary remains tracked by nozzle-dev#177.
 
 | Path | Status | Evidence boundary |
 | --- | --- | --- |

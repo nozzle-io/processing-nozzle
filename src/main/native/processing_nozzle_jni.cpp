@@ -119,33 +119,50 @@ uint8_t *mapped_row(NozzleMappedPixels &pixels, uint32_t y, int64_t stride) {
     return base - static_cast<size_t>(y) * static_cast<size_t>(abs_stride);
 }
 
-void copy_argb_to_rgba(JNIEnv *env, jintArray argb_pixels, NozzleMappedPixels &pixels, jint width, jint height) {
+bool is_color8(NozzleTextureFormat format) {
+    return format == NOZZLE_FORMAT_RGBA8_UNORM || format == NOZZLE_FORMAT_BGRA8_UNORM ||
+        format == NOZZLE_FORMAT_RGBA8_SRGB || format == NOZZLE_FORMAT_BGRA8_SRGB;
+}
+
+bool is_bgra8(NozzleTextureFormat format) {
+    return format == NOZZLE_FORMAT_BGRA8_UNORM || format == NOZZLE_FORMAT_BGRA8_SRGB;
+}
+
+bool copy_argb_to_mapped(JNIEnv *env, jintArray argb_pixels, NozzleMappedPixels &pixels, jint width, jint height) {
+    if (!is_color8(pixels.format) || pixels.width != static_cast<uint32_t>(width) ||
+        pixels.height != static_cast<uint32_t>(height)) {
+        set_last_error("ARGB publish requires a matching RGBA8/BGRA8 mapping");
+        return false;
+    }
     jint *argb = env->GetIntArrayElements(argb_pixels, nullptr);
     if (!argb) {
         set_last_error("GetIntArrayElements failed");
-        return;
+        return false;
     }
 
     int64_t stride = 0;
     if (!checked_row_stride(pixels, static_cast<uint32_t>(width) * 4u, &stride)) {
         env->ReleaseIntArrayElements(argb_pixels, argb, JNI_ABORT);
-        return;
+        return false;
     }
 
+    const size_t red = is_bgra8(pixels.format) ? 2u : 0u;
+    const size_t blue = is_bgra8(pixels.format) ? 0u : 2u;
     for (jint y = 0; y < height; y++) {
         uint8_t *row = mapped_row(pixels, static_cast<uint32_t>(y), stride);
         for (jint x = 0; x < width; x++) {
             uint32_t value = static_cast<uint32_t>(argb[y * width + x]);
             size_t offset = static_cast<size_t>(x) * 4u;
-            row[offset + 0u] = static_cast<uint8_t>((value >> 16u) & 0xffu);
+            row[offset + red] = static_cast<uint8_t>((value >> 16u) & 0xffu);
             row[offset + 1u] = static_cast<uint8_t>((value >> 8u) & 0xffu);
-            row[offset + 2u] = static_cast<uint8_t>(value & 0xffu);
+            row[offset + blue] = static_cast<uint8_t>(value & 0xffu);
             row[offset + 3u] = static_cast<uint8_t>((value >> 24u) & 0xffu);
         }
     }
 
     env->ReleaseIntArrayElements(argb_pixels, argb, JNI_ABORT);
     set_last_error("OK");
+    return true;
 }
 
 } // namespace
@@ -267,8 +284,7 @@ Java_processing_nozzle_ProcessingNozzleNative_nativePublishArgbPixels(JNIEnv *en
         return status_from_error(code, "nozzle_frame_lock_writable_pixels_mapping_with_origin");
     }
 
-    copy_argb_to_rgba(env, argb_pixels, pixels, width, height);
-    bool copy_ok = last_error == "OK";
+    bool copy_ok = copy_argb_to_mapped(env, argb_pixels, pixels, width, height);
 
     NozzleErrorCode unlock_code = nozzle_pixel_mapping_unlock_checked(&mapping);
     if (!copy_ok) {
@@ -363,22 +379,58 @@ Java_processing_nozzle_ProcessingNozzleNative_nativeReceiveRgba(JNIEnv *env, jcl
         return status_fail;
     }
 
+    NozzlePixelMapping *mapping = nullptr;
+    NozzleMappedPixels pixels{};
+    code = nozzle_frame_lock_pixels_mapping_with_origin(
+        frame, NOZZLE_ORIGIN_TOP_LEFT, &mapping, &pixels);
+    if (code != NOZZLE_OK || !mapping) {
+        nozzle_frame_release(frame);
+        return status_from_error(code == NOZZLE_OK ? NOZZLE_ERROR_UNKNOWN : code,
+            "nozzle_frame_lock_pixels_mapping_with_origin");
+    }
+    if (!is_color8(pixels.format)) {
+        nozzle_pixel_mapping_unlock(&mapping);
+        nozzle_frame_release(frame);
+        set_last_error("RGBA byte output requires RGBA8/BGRA8 mapped storage");
+        return status_unsupported;
+    }
+    int64_t stride = 0;
+    if (pixels.width != static_cast<uint32_t>(width) || pixels.height != static_cast<uint32_t>(height)) {
+        nozzle_pixel_mapping_unlock(&mapping);
+        nozzle_frame_release(frame);
+        set_last_error("received mapping size mismatch");
+        return status_fail;
+    }
+    if (!checked_row_stride(pixels, static_cast<uint32_t>(width) * 4u, &stride)) {
+        nozzle_pixel_mapping_unlock(&mapping);
+        nozzle_frame_release(frame);
+        return status_fail;
+    }
     jbyte *out = env->GetByteArrayElements(out_rgba, nullptr);
     if (!out) {
+        nozzle_pixel_mapping_unlock(&mapping);
         nozzle_frame_release(frame);
         set_last_error("GetByteArrayElements failed");
         return status_fail;
     }
 
-    NozzleMappedPixels copied{};
-    code = nozzle_frame_copy_pixels_with_origin(
-        frame,
-        NOZZLE_ORIGIN_TOP_LEFT,
-        out,
-        required_size,
-        &copied
-    );
+    const int64_t row_bytes = static_cast<int64_t>(width) * 4;
+    const uint8_t swap_rb[4] = {2, 1, 0, 3};
+    for (jint y = 0; y < height; ++y) {
+        const uint8_t *source = mapped_row(pixels, static_cast<uint32_t>(y), stride);
+        jbyte *destination = out + y * row_bytes;
+        if (is_bgra8(pixels.format)) {
+            // Core swizzle accepts positive strides; each row has distinct storage.
+            code = nozzle_swizzle_channels(source, destination, static_cast<uint32_t>(width),
+                1, row_bytes, row_bytes, pixels.format, swap_rb);
+            if (code != NOZZLE_OK) break;
+        } else {
+            std::memcpy(destination, source, static_cast<size_t>(row_bytes));
+        }
+    }
+    NozzleErrorCode unlock_code = nozzle_pixel_mapping_unlock_checked(&mapping);
+    if (code == NOZZLE_OK) code = unlock_code;
     env->ReleaseByteArrayElements(out_rgba, out, code == NOZZLE_OK ? 0 : JNI_ABORT);
     nozzle_frame_release(frame);
-    return status_from_error(code, "nozzle_frame_copy_pixels_with_origin");
+    return status_from_error(code, "mapped RGBA copy/unlock");
 }
