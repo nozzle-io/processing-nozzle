@@ -2,7 +2,7 @@ package processing.nozzle;
 
 public final class NativePixelPeer {
     private static native boolean check(String name, int width, int height);
-    private static native long publish(String name, int width, int height);
+    private static native long publish(String name, int width, int height, boolean monochrome);
     private static native void destroy(long sender);
 
     private static int argb(int x, int y) {
@@ -24,7 +24,7 @@ public final class NativePixelPeer {
     }
 
     private static void receive(int width, int height, String name) {
-        long nativeSender = publish(name, width, height);
+        long nativeSender = publish(name, width, height, false);
         if (nativeSender == 0) throw new AssertionError("native sender failed (no SKIP)");
         try (NozzleReceiver receiver = new NozzleReceiver(null, name)) {
             if (receiver.update(width, height, 3000) != NozzlePathStatus.PASS) {
@@ -42,6 +42,20 @@ public final class NativePixelPeer {
                     }
                 }
             }
+        } finally {
+            destroy(nativeSender);
+        }
+    }
+
+    private static void rejectUnsupported() {
+        String name = "p221-" + ProcessHandle.current().pid() + "-native-r8";
+        long nativeSender = publish(name, 65, 3, true);
+        if (nativeSender == 0) throw new AssertionError("native R8 sender failed (no SKIP)");
+        try (NozzleReceiver receiver = new NozzleReceiver(null, name)) {
+            if (receiver.update(65, 3, 3000) != NozzlePathStatus.UNSUPPORTED) {
+                throw new AssertionError("non-RGBA layout was not rejected: " + receiver.lastError());
+            }
+            if (receiver.lastRgbaFrame().length != 0) throw new AssertionError("invalid frame was published");
         } finally {
             destroy(nativeSender);
         }
@@ -65,7 +79,14 @@ public final class NativePixelPeer {
                 }
             }
         }
-        System.out.println("PROCESSING_NATIVE_PIXEL_PEER failed=" + failed + " total=4");
+        try {
+            rejectUnsupported();
+            System.out.println("native-r8-rejected PASS");
+        } catch (AssertionError | RuntimeException error) {
+            ++failed;
+            System.err.println("native-r8-rejected FAIL " + error);
+        }
+        System.out.println("PROCESSING_NATIVE_PIXEL_PEER failed=" + failed + " total=5");
         if (failed != 0) throw new AssertionError("native pixel peer failures=" + failed);
     }
 }

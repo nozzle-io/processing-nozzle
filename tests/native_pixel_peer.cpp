@@ -36,14 +36,16 @@ bool ok(NozzleErrorCode code, const char *operation) {
     return false;
 }
 
-bool storage(const NozzleMappedPixels &pixels, int width, int height) {
-    if(!pixels.data || pixels.format != NOZZLE_FORMAT_BGRA8_UNORM ||
+bool storage(const NozzleMappedPixels &pixels, int width, int height,
+             NozzleTextureFormat expected = NOZZLE_FORMAT_BGRA8_UNORM) {
+    const int bytes_per_pixel = expected == NOZZLE_FORMAT_R8_UNORM ? 1 : 4;
+    if(!pixels.data || pixels.format != expected ||
        pixels.width != static_cast<uint32_t>(width) || pixels.height != static_cast<uint32_t>(height) ||
-       pixels.row_stride_bytes < static_cast<int64_t>(width) * 4) {
-        std::fprintf(stderr, "required native BGRA8 mapping unavailable, no SKIP\n");
+       pixels.row_stride_bytes < static_cast<int64_t>(width) * bytes_per_pixel) {
+        std::fprintf(stderr, "required native format=%d mapping unavailable, no SKIP\n", (int)expected);
         return false;
     }
-    std::printf("native BGRA8 %dx%d stride=%lld\n", width, height, (long long)pixels.row_stride_bytes);
+    std::printf("native format=%d %dx%d stride=%lld\n", (int)expected, width, height, (long long)pixels.row_stride_bytes);
     return true;
 }
 } // namespace
@@ -80,7 +82,7 @@ Java_processing_nozzle_NativePixelPeer_check(JNIEnv *env, jclass, jstring name, 
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_processing_nozzle_NativePixelPeer_publish(JNIEnv *env, jclass, jstring name, jint width, jint height) {
+Java_processing_nozzle_NativePixelPeer_publish(JNIEnv *env, jclass, jstring name, jint width, jint height, jboolean monochrome) {
     resources peer;
     const std::string sender_name = name_from_java(env, name);
     NozzleSenderDesc desc{};
@@ -97,14 +99,19 @@ Java_processing_nozzle_NativePixelPeer_publish(JNIEnv *env, jclass, jstring name
         return 0;
     }
     if(!ok(nozzle_sender_acquire_writable_frame(peer.sender, width, height,
-        NOZZLE_FORMAT_RGBA8_UNORM, &peer.frame), "native writable acquire")) return 0;
+        monochrome ? NOZZLE_FORMAT_R8_UNORM : NOZZLE_FORMAT_RGBA8_UNORM, &peer.frame), "native writable acquire")) return 0;
     NozzleMappedPixels pixels{};
     if(!ok(nozzle_frame_lock_writable_pixels_mapping_with_origin(peer.frame, NOZZLE_ORIGIN_TOP_LEFT,
-        &peer.mapping, &pixels), "native write map") || !storage(pixels, width, height)) return 0;
+        &peer.mapping, &pixels), "native write map") || !storage(pixels, width, height,
+            monochrome ? NOZZLE_FORMAT_R8_UNORM : NOZZLE_FORMAT_BGRA8_UNORM)) return 0;
     // Independent native producer: write actual BGRA lanes directly.
     for(int y = 0; y < height; ++y) {
         auto *row = static_cast<uint8_t *>(pixels.data) + y * pixels.row_stride_bytes;
         for(int x = 0; x < width; ++x) {
+            if(monochrome) {
+                row[x] = 40 + y % 79;
+                continue;
+            }
             row[4*x] = 40 + y % 79;
             row[4*x+1] = 20 + x % 193;
             row[4*x+2] = 190 + y % 31;
