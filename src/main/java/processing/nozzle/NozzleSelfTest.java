@@ -7,17 +7,38 @@ public final class NozzleSelfTest {
         for (String bad : new String[] {"a\0b", "a\uD800", "a\uDC00", "\uD800x"}) {
             for (boolean sending : new boolean[] {true, false}) {
                 try {
-                    long handle = sending ? ProcessingNozzleNative.createSender(bad)
-                        : ProcessingNozzleNative.createReceiver(bad);
-                    if (sending) ProcessingNozzleNative.destroySender(handle);
-                    else ProcessingNozzleNative.destroyReceiver(handle);
+                    if (sending) {
+                        try (NozzleSender ignored = new NozzleSender(null, bad)) {}
+                    } else {
+                        try (NozzleReceiver ignored = new NozzleReceiver(null, bad)) {}
+                    }
                     throw new AssertionError("malformed UTF-16/NUL was not rejected by JNI");
-                } catch (Exception error) {
-                    Class<?> expected = bad.indexOf('\0') >= 0 ? IllegalArgumentException.class
-                        : java.nio.charset.CharacterCodingException.class;
-                    if (!expected.isInstance(error)) throw new AssertionError("unexpected JNI error", error);
+                } catch (IllegalArgumentException error) {
+                    String expected = bad.indexOf('\0') >= 0 ? "embedded NUL in name" : "unpaired surrogate in name";
+                    if (error.getClass() != IllegalArgumentException.class || !expected.equals(error.getMessage())) {
+                        throw new AssertionError("unexpected JNI error", error);
+                    }
                 }
             }
+        }
+        // Codec-only negative control, not evidence of corrupted native IPC.
+        try {
+            java.lang.reflect.Method decode = ProcessingNozzleNative.class.getDeclaredMethod("decodeUtf8", byte[].class);
+            decode.setAccessible(true);
+            for (byte[] bad : new byte[][] {{(byte)0xff}, {(byte)0xed, (byte)0xa0, (byte)0x80}}) {
+                try {
+                    decode.invoke(null, (Object)bad);
+                    throw new AssertionError("malformed native UTF-8 was not rejected");
+                } catch (java.lang.reflect.InvocationTargetException error) {
+                    Throwable cause = error.getCause();
+                    if (cause.getClass() != IllegalStateException.class
+                        || !"invalid UTF-8 returned by native code".equals(cause.getMessage())) {
+                        throw new AssertionError("unexpected decoder error", cause);
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("decoder contract unavailable", error);
         }
         long invalid = ProcessingNozzleNative.createSender("a".repeat(64));
         String error = ProcessingNozzleNative.lastError();
