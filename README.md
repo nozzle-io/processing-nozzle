@@ -34,6 +34,19 @@ Not claimed:
 
 ## Build
 
+JNI names use strict standard UTF-8, including supplementary Unicode characters.
+Sender names remain limited to 63 UTF-8 bytes. Embedded NUL and unpaired surrogates
+raise unchecked `IllegalArgumentException` with diagnostics, extending the existing
+constructor policy for invalid caller arguments. Malformed native diagnostic bytes
+raise unchecked `IllegalStateException`. No checked charset exception escapes and
+no characters are silently replaced. Core availability/operation failures continue
+to use the existing handle, status and `lastError` policy.
+The existing native self-test checks malformed input and a non-BMP diagnostic on
+all platforms, plus real 63-byte sender/receiver lookup on macOS/Windows. Linux
+explicitly skips the default-backend lookup. This is metadata-only evidence, not
+Processing-host or pixel coverage. Application name remains fixed to
+`processing-nozzle`; no public discovery/info API was added.
+
 ```bash
 python3 scripts/build_package.py
 python3 scripts/check_package.py
