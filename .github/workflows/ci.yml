@@ -37,7 +37,7 @@ jobs:
         run: python3 scripts/build_package.py
       - name: Check package shape
         run: python3 scripts/check_package.py
-      - name: Native load and CPU oracle smoke
+      - name: Native UTF-8 contract, load and CPU oracle (Linux discovery explicitly skipped)
         shell: bash
         run: |
           platform_dir=$(python3 scripts/platform_folder.py)

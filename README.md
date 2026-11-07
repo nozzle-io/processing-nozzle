@@ -34,6 +34,16 @@ Not claimed:
 
 ## Build
 
+JNI names use strict standard UTF-8, including supplementary Unicode characters.
+Sender names remain limited to 63 UTF-8 bytes. Embedded NUL raises
+`IllegalArgumentException`; unpaired surrogates raise `CharacterCodingException`
+instead of being replaced. Native diagnostic strings are decoded strictly too.
+The existing native self-test checks malformed input and a non-BMP diagnostic on
+all platforms, plus real 63-byte sender/receiver lookup on macOS/Windows. Linux
+explicitly skips the default-backend lookup. This is metadata-only evidence, not
+Processing-host or pixel coverage. Application name remains fixed to
+`processing-nozzle`; no public discovery/info API was added.
+
 ```bash
 python3 scripts/build_package.py
 python3 scripts/check_package.py

@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
+#include <memory>
 #include <limits>
 #include <new>
 #include <string>
@@ -59,17 +61,55 @@ int status_from_error(NozzleErrorCode code, const char *prefix) {
     }
 }
 
-std::string string_from_jstring(JNIEnv *env, jstring text) {
-    if (!text) {
-        return std::string();
-    }
-    const char *chars = env->GetStringUTFChars(text, nullptr);
-    if (!chars) {
-        return std::string();
-    }
-    std::string result{chars};
-    env->ReleaseStringUTFChars(text, chars);
+using utf8_string = std::unique_ptr<char, decltype(&std::free)>;
+
+utf8_string string_from_jstring(JNIEnv *env, jstring text) {
+    utf8_string result(nullptr, &std::free);
+    if (env->PushLocalFrame(4) < 0) return result;
+    do {
+        jclass bridge = env->FindClass("processing/nozzle/ProcessingNozzleNative");
+        if (!bridge) break;
+        jmethodID encode = env->GetStaticMethodID(bridge, "encodeUtf8", "(Ljava/lang/String;)[B");
+        if (!encode) break;
+        auto bytes = static_cast<jbyteArray>(env->CallStaticObjectMethod(bridge, encode, text));
+        if (env->ExceptionCheck() || !bytes) break;
+        jsize size = env->GetArrayLength(bytes);
+        result.reset(static_cast<char *>(std::malloc(static_cast<size_t>(size) + 1u)));
+        if (!result) {
+            jclass oom = env->FindClass("java/lang/OutOfMemoryError");
+            if (oom) env->ThrowNew(oom, "UTF-8 name allocation failed");
+            break;
+        }
+        env->GetByteArrayRegion(bytes, 0, size, reinterpret_cast<jbyte *>(result.get()));
+        if (env->ExceptionCheck()) result.reset();
+        else result.get()[size] = '\0';
+    } while (false);
+    env->PopLocalFrame(nullptr);
     return result;
+}
+
+jstring string_to_java(JNIEnv *env, const std::string &text) {
+    if (env->PushLocalFrame(4) < 0) return nullptr;
+    jstring result = nullptr;
+    do {
+        if (text.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+            jclass oom = env->FindClass("java/lang/OutOfMemoryError");
+            if (oom) env->ThrowNew(oom, "UTF-8 result too large");
+            break;
+        }
+        jclass bridge = env->FindClass("processing/nozzle/ProcessingNozzleNative");
+        if (!bridge) break;
+        jmethodID decode = env->GetStaticMethodID(bridge, "decodeUtf8", "([B)Ljava/lang/String;");
+        if (!decode) break;
+        jbyteArray bytes = env->NewByteArray(static_cast<jsize>(text.size()));
+        if (!bytes) break;
+        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(text.size()),
+            reinterpret_cast<const jbyte *>(text.data()));
+        if (env->ExceptionCheck()) break;
+        result = static_cast<jstring>(env->CallStaticObjectMethod(bridge, decode, bytes));
+        if (env->ExceptionCheck()) result = nullptr;
+    } while (false);
+    return static_cast<jstring>(env->PopLocalFrame(result));
 }
 
 sender_handle *to_sender(jlong handle) {
@@ -171,7 +211,7 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_processing_nozzle_ProcessingNozzleNative_nativeVersion(JNIEnv *env, jclass) {
     std::string text = "processing-nozzle-jni; nozzle_c_error_ok=" + std::to_string(static_cast<int>(NOZZLE_OK))
         + "; rgba8=" + std::to_string(static_cast<int>(NOZZLE_FORMAT_RGBA8_UNORM));
-    return env->NewStringUTF(text.c_str());
+    return string_to_java(env, text);
 }
 
 
@@ -186,7 +226,7 @@ Java_processing_nozzle_ProcessingNozzleNative_nativeBackendDiagnostics(JNIEnv *e
         + "; sharing_mechanisms=" + std::to_string(caps.sharing_mechanisms)
         + "; cpu_read_bits=" + std::to_string(caps.cpu_read_format_bits)
         + "; cpu_write_bits=" + std::to_string(caps.cpu_write_format_bits);
-    return env->NewStringUTF(text.c_str());
+    return string_to_java(env, text);
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -202,13 +242,14 @@ Java_processing_nozzle_ProcessingNozzleNative_nativeSelfTest(JNIEnv *, jclass) {
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_processing_nozzle_ProcessingNozzleNative_nativeLastError(JNIEnv *env, jclass) {
-    return env->NewStringUTF(last_error.c_str());
+    return string_to_java(env, last_error);
 }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_processing_nozzle_ProcessingNozzleNative_nativeCreateSender(JNIEnv *env, jclass, jstring name) {
-    std::string native_name_storage = string_from_jstring(env, name);
-    const char *native_name = native_name_storage.c_str();
+    auto native_name_storage = string_from_jstring(env, name);
+    if (!native_name_storage) return 0;
+    const char *native_name = native_name_storage.get();
     if (!native_name[0]) {
         set_last_error("sender name is empty");
         return 0;
@@ -305,8 +346,9 @@ Java_processing_nozzle_ProcessingNozzleNative_nativePublishArgbPixels(JNIEnv *en
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_processing_nozzle_ProcessingNozzleNative_nativeCreateReceiver(JNIEnv *env, jclass, jstring source_name) {
-    std::string native_source_storage = string_from_jstring(env, source_name);
-    const char *native_source = native_source_storage.c_str();
+    auto native_source_storage = string_from_jstring(env, source_name);
+    if (!native_source_storage) return 0;
+    const char *native_source = native_source_storage.get();
     if (!native_source[0]) {
         set_last_error("source name is empty");
         return 0;
@@ -320,7 +362,8 @@ Java_processing_nozzle_ProcessingNozzleNative_nativeCreateReceiver(JNIEnv *env, 
     NozzleReceiver *receiver = nullptr;
     NozzleErrorCode code = nozzle_receiver_create(&desc, &receiver);
     if (code != NOZZLE_OK || !receiver) {
-        status_from_error(code, "nozzle_receiver_create");
+        const std::string operation = std::string("nozzle_receiver_create ") + native_source;
+        status_from_error(code, operation.c_str());
         return 0;
     }
 

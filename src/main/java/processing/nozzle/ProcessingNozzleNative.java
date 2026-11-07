@@ -22,6 +22,26 @@ final class ProcessingNozzleNative {
 
     private ProcessingNozzleNative() {}
 
+    // JNI's UTF chars use modified UTF-8. Core names use strict standard UTF-8.
+    private static byte[] encodeUtf8(String text) throws java.nio.charset.CharacterCodingException {
+        if (text == null) text = "";
+        if (text.indexOf('\0') >= 0) throw new IllegalArgumentException("embedded NUL in name");
+        java.nio.ByteBuffer bytes = java.nio.charset.StandardCharsets.UTF_8.newEncoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .encode(java.nio.CharBuffer.wrap(text));
+        byte[] result = new byte[bytes.remaining()];
+        bytes.get(result);
+        return result;
+    }
+
+    private static String decodeUtf8(byte[] bytes) throws java.nio.charset.CharacterCodingException {
+        return java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+    }
+
     private static void loadBundledNozzle() {
         String libraryPath = System.getProperty("java.library.path", "");
         String[] entries = libraryPath.split(File.pathSeparator);
